@@ -9,8 +9,51 @@ const SECRET = "segredo";
 
 
 app.get('/', (req, res) => {
-    res.send('API Rodando!')
-})
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+      <meta charset="UTF-8">
+      <title>API Barbearia</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          background: linear-gradient(135deg, #1e1e2f, #2c2c54);
+          color: #fff;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          margin: 0;
+        }
+
+        .container {
+          text-align: center;
+        }
+
+        img {
+          width: 700px;
+          border-radius: 10px;
+          margin-bottom: 15px;
+        }
+
+        footer {
+          font-size: 30px;
+          color: #ccc;
+        }
+      </style>
+    </head>
+    <body>
+
+      <div class="container">
+        <img src="https://http.cat/200">
+        <footer>A rota / está ativa, mas não tem interface visual aqui</footer>
+      </div>
+
+    </body>
+    </html>
+  `);
+});
 
 let usuarios = [
   { id: 1, email: "admin@barbearia.com", senha: "123" }
