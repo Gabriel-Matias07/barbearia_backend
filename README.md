@@ -26,6 +26,8 @@ API REST simples feita com **Node.js**, **Express** e **JWT** para gerenciar ser
 npm install
 npm install express jsonwebtoken
 node index.js
+
+instalação biblioteca PDF PDFDocument npm install PDFDocument
 ````
 
 Servidor: `http://localhost:3000`
@@ -50,6 +52,8 @@ Servidor: `http://localhost:3000`
 
 * **Email:** [admin@barbearia.com](mailto:admin@barbearia.com)
 * **Senha:** 123
+
+
 
 ```
 ```
