@@ -1,84 +1,41 @@
+require('dotenv').config();
+
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+const PDFDocument = require('pdfkit');
+
+const conectarDB = require('./db');
+const Usuario = require('./models/Usuario');
+const Item = require('./models/Item');
 
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;  
-const SECRET = "segredo";
+conectarDB();
 
-
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="pt-br">
-    <head>
-      <meta charset="UTF-8">
-      <title>API Barbearia</title>
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          background: linear-gradient(135deg, #1e1e2f, #2c2c54);
-          color: #fff;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-          margin: 0;
-        }
-
-        .container {
-          text-align: center;
-        }
-
-        img {
-          width: 700px;
-          border-radius: 10px;
-          margin-bottom: 15px;
-        }
-
-        footer {
-          font-size: 30px;
-          color: #ccc;
-        }
-      </style>
-    </head>
-    <body>
-
-      <div class="container">
-        <img src="https://http.cat/200">
-        <footer>A rota / está ativa, mas não tem interface visual aqui</footer>
-      </div>
-
-    </body>
-    </html>
-  `);
-});
-
-let usuarios = [
-  { id: 1, email: "admin@barbearia.com", senha: "123" }
-];
-
-let itens = [
-  { id: 1, nome: "Corte de cabelo", preco: 30 },
-  { id: 2, nome: "Barba", preco: 20 }
-];
+const PORT = process.env.PORT || 3000;
+const SECRET = process.env.JWT_SECRET;
 
 let logs = [];
 
-// MIDDLEWARE dos dias úteis
+// HTML
+app.get('/', (req, res) => {
+  res.send("API rodando");
+});
 
+// MIDDLEWARE dias úteis
 function apenasDiasUteis(req, res, next) {
   const dia = new Date().getDay();
 
-  if (dia === 5 ) {
+  if (dia === 5) {
     return res.status(403).json({ erro: "API só funciona de segunda a sexta" });
   }
 
   next();
 }
 
-// MIDDLEWARE: logs
+// LOGS
 function registrarLog(req, res, next) {
   logs.push({
     rota: req.path,
@@ -91,9 +48,7 @@ function registrarLog(req, res, next) {
 app.use(apenasDiasUteis);
 app.use(registrarLog);
 
-
-// MIDDLEWARE: autenticacao
-
+// AUTH
 function autenticar(req, res, next) {
   const token = req.headers['authorization'];
 
@@ -109,90 +64,72 @@ function autenticar(req, res, next) {
   }
 }
 
-// A. LOGIN
-
-app.post('/logar', (req, res) => {
+// LOGIN
+app.post('/logar', async (req, res) => {
   const { email, senha } = req.body;
 
-  const user = usuarios.find(u => u.email === email && u.senha === senha);
+  const user = await Usuario.findOne({ email });
 
   if (!user) {
     return res.status(401).json({ erro: "Credenciais inválidas" });
   }
 
-  const token = jwt.sign({ id: user.id }, SECRET);
+  const senhaValida = await bcrypt.compare(senha, user.senha);
+
+  if (!senhaValida) {
+    return res.status(401).json({ erro: "Credenciais inválidas" });
+  }
+
+  const token = jwt.sign({ id: user._id }, SECRET);
 
   res.json({ token });
 });
 
-const PDFDocument = require('pdfkit');
-  
+// PDF
+app.get('/itens/pdf', autenticar, async (req, res) => {
+  const itens = await Item.find();
 
-//Rota de gerar PDP
-app.get('/itens/pdf', autenticar, (req, res) => {
   const doc = new PDFDocument();
 
-  // Configura o download
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename=itens.pdf');
 
-  // Liga o PDF na resposta
   doc.pipe(res);
 
-  // Título
-  doc.fontSize(18).text('Lista de Serviços', {
-    align: 'center'
-  });
-
+  doc.fontSize(18).text('Lista de Serviços', { align: 'center' });
   doc.moveDown();
 
-  // Lista de itens
   itens.forEach(i => {
-    doc.fontSize(12).text(`${i.id} - ${i.nome} - R$${i.preco}`);
+    doc.fontSize(12).text(`${i._id} - ${i.nome} - R$${i.preco}`);
   });
 
-  // Finaliza o PDF
   doc.end();
 });
 
-// B. LISTAR ITENS
-
-app.get('/itens', autenticar, (req, res) => {
+// GET itens
+app.get('/itens', autenticar, async (req, res) => {
+  const itens = await Item.find();
   res.json(itens);
 });
 
-// C. CRIAR ITEM
-
-app.post('/itens', autenticar, (req, res) => {
+// POST item
+app.post('/itens', autenticar, async (req, res) => {
   const { nome, preco } = req.body;
 
-  const novo = {
-    id: itens.length + 1,
-    nome,
-    preco
-  };
-
-  itens.push(novo);
+  const novo = await Item.create({ nome, preco });
 
   res.json(novo);
 });
 
-// D. DELETAR ITEM
-
-app.delete('/itens/:id', autenticar, (req, res) => {
-  const id = parseInt(req.params.id);
-
-  itens = itens.filter(i => i.id !== id);
-
+// DELETE item
+app.delete('/itens/:id', autenticar, async (req, res) => {
+  await Item.findByIdAndDelete(req.params.id);
   res.json({ mensagem: "Item removido" });
 });
 
-// F. BUSCAR POR ID
-
-app.get('/itens/:id', autenticar, (req, res) => {
-  const id = parseInt(req.params.id);
-
-  const item = itens.find(i => i.id === id);
+// GET item por ID
+app.get('/itens/:id', autenticar, async (req, res) => {
+  const item = await Item.findById(req.params.id);
 
   if (!item) {
     return res.status(404).json({ erro: "Item não encontrado" });
@@ -201,7 +138,7 @@ app.get('/itens/:id', autenticar, (req, res) => {
   res.json(item);
 });
 
-// F. LOGS POR DATA
+// LOGS
 app.get('/logs', autenticar, (req, res) => {
   const { data } = req.query;
 
@@ -209,7 +146,6 @@ app.get('/logs', autenticar, (req, res) => {
 
   res.json(filtrados);
 });
-
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
