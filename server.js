@@ -7,6 +7,7 @@ const PDFDocument = require('pdfkit');
 const cors = require('cors');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
+const nodemailer = require('nodemailer');
 
 const conectarDB = require('./db');
 const Usuario = require('./models/Usuario');
@@ -24,26 +25,39 @@ conectarDB();
 const PORT = process.env.PORT || 3000;
 const SECRET = process.env.JWT_SECRET;
 
-// CLOUDINARY CONFIG
+// ================= CLOUDINARY =================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// MULTER
+// ================= MULTER =================
 const upload = multer({ dest: 'uploads/' });
 
+// ================= EMAIL =================
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// ================= 2FA =================
+let codigos2FA = {};
+
+// ================= LOGS =================
 let logs = [];
 
-// HOME
+// ================= HOME =================
 app.get('/', (req, res) => {
   res.send("API rodando 🚀");
 });
 
-// MIDDLEWARE
+// ================= MIDDLEWARE =================
 function apenasDiasUteis(req, res, next) {
-  next();
+  next(); // liberado
 }
 
 function registrarLog(req, res, next) {
@@ -57,7 +71,7 @@ function registrarLog(req, res, next) {
 app.use(apenasDiasUteis);
 app.use(registrarLog);
 
-// AUTH
+// ================= AUTH =================
 function autenticar(req, res, next) {
   const token = req.headers['authorization'];
 
@@ -71,7 +85,7 @@ function autenticar(req, res, next) {
   }
 }
 
-// LOGIN
+// ================= LOGIN (AGORA COM 2FA) =================
 app.post('/logar', async (req, res) => {
   const { email, senha } = req.body;
 
@@ -87,12 +101,44 @@ app.post('/logar', async (req, res) => {
 
   if (!senhaValida) return res.status(401).json({ erro: "Credenciais inválidas" });
 
+  const codigo = Math.floor(100000 + Math.random() * 900000);
+
+  codigos2FA[email] = codigo;
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: 'Código de verificação',
+    text: `Seu código é: ${codigo}`
+  });
+
+  res.json({ mensagem: "Código enviado para o email" });
+});
+
+// ================= VERIFICAR 2FA =================
+app.post('/verificar-2fa', async (req, res) => {
+  const { email, codigo } = req.body;
+
+  const codigoSalvo = codigos2FA[email];
+
+  if (!codigoSalvo) {
+    return res.status(400).json({ erro: "Código não encontrado" });
+  }
+
+  if (Number(codigo) !== codigoSalvo) {
+    return res.status(401).json({ erro: "Código inválido" });
+  }
+
+  const user = await Usuario.findOne({ email });
+
   const token = jwt.sign({ id: user._id }, SECRET);
+
+  delete codigos2FA[email];
 
   res.json({ token });
 });
 
-// UPLOAD IMAGEM
+// ================= UPLOAD =================
 app.post('/upload', autenticar, upload.single('imagem'), async (req, res) => {
   try {
     const resultado = await cloudinary.uploader.upload(req.file.path);
@@ -101,12 +147,12 @@ app.post('/upload', autenticar, upload.single('imagem'), async (req, res) => {
       url: resultado.secure_url
     });
 
-  } catch (err) {
+  } catch {
     res.status(500).json({ erro: "Erro ao enviar imagem" });
   }
 });
 
-// DISTÂNCIA
+// ================= DISTÂNCIA =================
 function calcularDistancia(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const toRad = (deg) => deg * Math.PI / 180;
@@ -142,7 +188,7 @@ app.get('/distancia', (req, res) => {
   res.json({ distancia_km: distancia });
 });
 
-// PDF
+// ================= PDF =================
 app.get('/itens/pdf', autenticar, async (req, res) => {
   const itens = await Item.find();
 
@@ -163,7 +209,7 @@ app.get('/itens/pdf', autenticar, async (req, res) => {
   doc.end();
 });
 
-// CRUD
+// ================= CRUD =================
 
 app.get('/itens', autenticar, async (req, res) => {
   res.json(await Item.find());
@@ -172,11 +218,7 @@ app.get('/itens', autenticar, async (req, res) => {
 app.post('/itens', autenticar, async (req, res) => {
   const { nome, preco, imagem } = req.body;
 
-  const novo = await Item.create({
-    nome,
-    preco,
-    imagem
-  });
+  const novo = await Item.create({ nome, preco, imagem });
 
   res.json(novo);
 });
@@ -188,7 +230,7 @@ app.put('/itens/:id', autenticar, async (req, res) => {
     const atualizado = await Item.findByIdAndUpdate(
       req.params.id,
       { nome, preco, imagem },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!atualizado) {
@@ -222,7 +264,7 @@ app.get('/itens/:id', autenticar, async (req, res) => {
   }
 });
 
-// LOGS
+// ================= LOGS =================
 app.get('/logs', autenticar, (req, res) => {
   const { data } = req.query;
 
@@ -231,6 +273,11 @@ app.get('/logs', autenticar, (req, res) => {
   res.json(filtrados);
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+// ================= SERVER =================
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`Servidor rodando em http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
