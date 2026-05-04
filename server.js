@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const PDFDocument = require('pdfkit');
 const cors = require('cors');
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 
 const conectarDB = require('./db');
 const Usuario = require('./models/Usuario');
@@ -22,6 +24,16 @@ conectarDB();
 const PORT = process.env.PORT || 3000;
 const SECRET = process.env.JWT_SECRET;
 
+// CLOUDINARY CONFIG
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// MULTER
+const upload = multer({ dest: 'uploads/' });
+
 let logs = [];
 
 // HOME
@@ -31,10 +43,6 @@ app.get('/', (req, res) => {
 
 // MIDDLEWARE
 function apenasDiasUteis(req, res, next) {
-  const dia = new Date().getDay();
-  if (false) {
-    return res.status(403).json({ erro: "API só funciona de segunda a sexta" });
-  }
   next();
 }
 
@@ -65,8 +73,11 @@ function autenticar(req, res, next) {
 
 // LOGIN
 app.post('/logar', async (req, res) => {
-  console.log(req.body); 
   const { email, senha } = req.body;
+
+  if (!email || !senha) {
+    return res.status(400).json({ erro: "Email e senha obrigatórios" });
+  }
 
   const user = await Usuario.findOne({ email });
 
@@ -79,6 +90,20 @@ app.post('/logar', async (req, res) => {
   const token = jwt.sign({ id: user._id }, SECRET);
 
   res.json({ token });
+});
+
+// UPLOAD IMAGEM
+app.post('/upload', autenticar, upload.single('imagem'), async (req, res) => {
+  try {
+    const resultado = await cloudinary.uploader.upload(req.file.path);
+
+    res.json({
+      url: resultado.secure_url
+    });
+
+  } catch (err) {
+    res.status(500).json({ erro: "Erro ao enviar imagem" });
+  }
 });
 
 // DISTÂNCIA
@@ -139,23 +164,30 @@ app.get('/itens/pdf', autenticar, async (req, res) => {
 });
 
 // CRUD
+
 app.get('/itens', autenticar, async (req, res) => {
   res.json(await Item.find());
 });
 
 app.post('/itens', autenticar, async (req, res) => {
-  const { nome, preco } = req.body;
-  const novo = await Item.create({ nome, preco });
+  const { nome, preco, imagem } = req.body;
+
+  const novo = await Item.create({
+    nome,
+    preco,
+    imagem
+  });
+
   res.json(novo);
 });
 
 app.put('/itens/:id', autenticar, async (req, res) => {
-  const { nome, preco } = req.body;
+  const { nome, preco, imagem } = req.body;
 
   try {
     const atualizado = await Item.findByIdAndUpdate(
       req.params.id,
-      { nome, preco },
+      { nome, preco, imagem },
       { new: true }
     );
 
@@ -164,6 +196,7 @@ app.put('/itens/:id', autenticar, async (req, res) => {
     }
 
     res.json(atualizado);
+
   } catch {
     res.status(400).json({ erro: "ID inválido" });
   }
@@ -175,13 +208,18 @@ app.delete('/itens/:id', autenticar, async (req, res) => {
 });
 
 app.get('/itens/:id', autenticar, async (req, res) => {
-  const item = await Item.findById(req.params.id);
+  try {
+    const item = await Item.findById(req.params.id);
 
-  if (!item) {
-    return res.status(404).json({ erro: "Item não encontrado" });
+    if (!item) {
+      return res.status(404).json({ erro: "Item não encontrado" });
+    }
+
+    res.json(item);
+
+  } catch {
+    res.status(400).json({ erro: "ID inválido" });
   }
-
-  res.json(item);
 });
 
 // LOGS
