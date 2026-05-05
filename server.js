@@ -52,7 +52,7 @@ let logs = [];
 
 // ================= HOME =================
 app.get('/', (req, res) => {
-  res.send("API rodando 🚀");
+  res.send("API esta no ar");
 });
 
 // ================= MIDDLEWARE =================
