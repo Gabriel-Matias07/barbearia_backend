@@ -8,6 +8,7 @@ const cors = require('cors');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const nodemailer = require('nodemailer');
+const { Parser } = require('json2csv');
 
 const conectarDB = require('./db');
 const Usuario = require('./models/Usuario');
@@ -281,6 +282,58 @@ app.get('/distancia', (req, res) => {
   res.json({
     distancia_km: distancia
   });
+});
+
+// ================= EXPORTAR CSV =================
+app.get('/exportar', async (req, res) => {
+
+  try {
+
+    const itens = await Item.find().lean();
+
+    const dados = itens.map((item) => ({
+      id: item._id.toString(),
+      nome: item.nome,
+      preco: item.preco,
+      imagem: item.imagem || ''
+    }));
+
+    const campos = [
+      'id',
+      'nome',
+      'preco',
+      'imagem'
+    ];
+
+    const parser = new Parser({
+      fields: campos
+    });
+
+    const csv = parser.parse(dados);
+
+    const dataAtual = new Date()
+      .toISOString()
+      .slice(0, 10);
+
+    const nomeArquivo = `itens-${dataAtual}.csv`;
+
+    res.header(
+      'Content-Type',
+      'text/csv; charset=utf-8'
+    );
+
+    res.attachment(nomeArquivo);
+
+    return res.send('\uFEFF' + csv);
+
+  } catch (err) {
+
+    console.log(err);
+
+    return res.status(500).json({
+      erro: "Erro ao exportar dados em CSV"
+    });
+  }
 });
 
 // ================= PDF =================
