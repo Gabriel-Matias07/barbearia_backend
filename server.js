@@ -16,7 +16,10 @@ const Item = require('./models/Item');
 
 const exportacaoRoutes = require('./routes/exportacaoRoutes');
 const backupRoutes = require('./routes/backupRoutes');
+const monitoramentoRoutes = require('./routes/monitoramentoRoutes');
+
 const { fazerBackupItens } = require('./services/backupService');
+const { registrarAcesso } = require('./services/monitoramentoService');
 
 const app = express();
 
@@ -55,9 +58,6 @@ const transporter = nodemailer.createTransport({
 // ================= 2FA =================
 let codigos2FA = {};
 
-// ================= LOGS =================
-let logs = [];
-
 // ================= BACKUP AUTOMÁTICO =================
 // Backup automático todos os dias às 17:00.
 // O arquivo CSV é salvo na pasta /backups do servidor da aplicação.
@@ -87,24 +87,19 @@ function apenasDiasUteis(req, res, next) {
   next();
 }
 
-function registrarLog(req, res, next) {
-  logs.push({
-    rota: req.path,
-    data: new Date().toISOString()
-  });
-
-  next();
-}
-
 app.use(apenasDiasUteis);
-app.use(registrarLog);
+
+// Middleware responsável por registrar os acessos às rotas.
+// Esses dados serão usados no relatório de monitoramento em PDF.
+app.use(registrarAcesso);
 
 // ================= ROTAS SEPARADAS =================
-// Essas rotas foram separadas para deixar o server.js mais limpo.
 // /exportar fica em routes/exportacaoRoutes.js
 // /backup/manual fica em routes/backupRoutes.js
+// /relatorio-monitoramento e /monitoramento/acessos ficam em routes/monitoramentoRoutes.js
 app.use(exportacaoRoutes);
 app.use(backupRoutes);
+app.use(monitoramentoRoutes);
 
 // ================= AUTH =================
 function autenticar(req, res, next) {
@@ -454,23 +449,6 @@ app.get('/itens/:id', autenticar, async (req, res) => {
       erro: "ID inválido"
     });
   }
-});
-
-// ================= LOGS =================
-app.get('/logs', autenticar, (req, res) => {
-
-  const { data } = req.query;
-
-  if (!data) {
-    return res.json(logs);
-  }
-
-  const filtrados =
-    logs.filter(l =>
-      l.data.startsWith(data)
-    );
-
-  res.json(filtrados);
 });
 
 // ================= SERVER =================
