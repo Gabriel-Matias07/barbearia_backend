@@ -39,3 +39,6 @@ data/
 .vscode/
 .idea/
 *.swp
+
+# Backups gerados pelo sistema
+backups/*.csv

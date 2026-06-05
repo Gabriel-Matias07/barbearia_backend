@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
+const cron = require('node-cron');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
@@ -53,6 +56,93 @@ let codigos2FA = {};
 
 // ================= LOGS =================
 let logs = [];
+
+// ================= BACKUP CSV =================
+const pastaBackups = path.join(__dirname, 'backups');
+
+function garantirPastaBackups() {
+  if (!fs.existsSync(pastaBackups)) {
+    fs.mkdirSync(pastaBackups);
+  }
+}
+
+async function gerarCsvItens() {
+  const itens = await Item.find().lean();
+
+  const dados = itens.map((item) => ({
+    id: item._id.toString(),
+    nome: item.nome,
+    preco: item.preco,
+    imagem: item.imagem || ''
+  }));
+
+  const campos = [
+    'id',
+    'nome',
+    'preco',
+    'imagem'
+  ];
+
+  const parser = new Parser({
+    fields: campos
+  });
+
+  return parser.parse(dados);
+}
+
+async function fazerBackupItens() {
+  garantirPastaBackups();
+
+  const csv = await gerarCsvItens();
+
+  const agora = new Date();
+
+  const data = agora
+    .toISOString()
+    .slice(0, 10);
+
+  const hora = agora
+    .toTimeString()
+    .slice(0, 8)
+    .replaceAll(':', '-');
+
+  const nomeArquivo = `backup-itens-${data}-${hora}.csv`;
+
+  const caminhoArquivo = path.join(
+    pastaBackups,
+    nomeArquivo
+  );
+
+  fs.writeFileSync(
+    caminhoArquivo,
+    '\uFEFF' + csv,
+    'utf8'
+  );
+
+  console.log(`Backup gerado no servidor: ${caminhoArquivo}`);
+
+  return {
+    nomeArquivo,
+    caminhoArquivo
+  };
+}
+
+// Backup automático todos os dias às 17:00
+if (process.env.NODE_ENV !== 'test') {
+  cron.schedule('0 17 * * *', async () => {
+
+    try {
+
+      console.log('Iniciando backup automático das 17:00');
+
+      await fazerBackupItens();
+
+    } catch (err) {
+
+      console.log('Erro no backup automático:', err);
+    }
+  });
+}
 
 // ================= HOME =================
 app.get('/', (req, res) => {
@@ -289,27 +379,7 @@ app.get('/exportar', async (req, res) => {
 
   try {
 
-    const itens = await Item.find().lean();
-
-    const dados = itens.map((item) => ({
-      id: item._id.toString(),
-      nome: item.nome,
-      preco: item.preco,
-      imagem: item.imagem || ''
-    }));
-
-    const campos = [
-      'id',
-      'nome',
-      'preco',
-      'imagem'
-    ];
-
-    const parser = new Parser({
-      fields: campos
-    });
-
-    const csv = parser.parse(dados);
+    const csv = await gerarCsvItens();
 
     const dataAtual = new Date()
       .toISOString()
@@ -332,6 +402,29 @@ app.get('/exportar', async (req, res) => {
 
     return res.status(500).json({
       erro: "Erro ao exportar dados em CSV"
+    });
+  }
+});
+
+// ================= BACKUP MANUAL =================
+app.get('/backup/manual', async (req, res) => {
+
+  try {
+
+    const backup = await fazerBackupItens();
+
+    return res.json({
+      mensagem: "Backup gerado com sucesso no servidor",
+      arquivo: backup.nomeArquivo,
+      caminho: backup.caminhoArquivo
+    });
+
+  } catch (err) {
+
+    console.log(err);
+
+    return res.status(500).json({
+      erro: "Erro ao gerar backup manual"
     });
   }
 });
@@ -482,6 +575,10 @@ app.get('/itens/:id', autenticar, async (req, res) => {
 app.get('/logs', autenticar, (req, res) => {
 
   const { data } = req.query;
+
+  if (!data) {
+    return res.json(logs);
+  }
 
   const filtrados =
     logs.filter(l =>
