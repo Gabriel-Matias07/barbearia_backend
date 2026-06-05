@@ -1,7 +1,5 @@
 require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
 const cron = require('node-cron');
 const express = require('express');
 const jwt = require('jsonwebtoken');
@@ -11,11 +9,14 @@ const cors = require('cors');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const nodemailer = require('nodemailer');
-const { Parser } = require('json2csv');
 
 const conectarDB = require('./db');
 const Usuario = require('./models/Usuario');
 const Item = require('./models/Item');
+
+const exportacaoRoutes = require('./routes/exportacaoRoutes');
+const backupRoutes = require('./routes/backupRoutes');
+const { fazerBackupItens } = require('./services/backupService');
 
 const app = express();
 
@@ -57,77 +58,9 @@ let codigos2FA = {};
 // ================= LOGS =================
 let logs = [];
 
-// ================= BACKUP CSV =================
-const pastaBackups = path.join(__dirname, 'backups');
-
-function garantirPastaBackups() {
-  if (!fs.existsSync(pastaBackups)) {
-    fs.mkdirSync(pastaBackups);
-  }
-}
-
-async function gerarCsvItens() {
-  const itens = await Item.find().lean();
-
-  const dados = itens.map((item) => ({
-    id: item._id.toString(),
-    nome: item.nome,
-    preco: item.preco,
-    imagem: item.imagem || ''
-  }));
-
-  const campos = [
-    'id',
-    'nome',
-    'preco',
-    'imagem'
-  ];
-
-  const parser = new Parser({
-    fields: campos
-  });
-
-  return parser.parse(dados);
-}
-
-async function fazerBackupItens() {
-  garantirPastaBackups();
-
-  const csv = await gerarCsvItens();
-
-  const agora = new Date();
-
-  const data = agora
-    .toISOString()
-    .slice(0, 10);
-
-  const hora = agora
-    .toTimeString()
-    .slice(0, 8)
-    .replaceAll(':', '-');
-
-  const nomeArquivo = `backup-itens-${data}-${hora}.csv`;
-
-  const caminhoArquivo = path.join(
-    pastaBackups,
-    nomeArquivo
-  );
-
-  fs.writeFileSync(
-    caminhoArquivo,
-    '\uFEFF' + csv,
-    'utf8'
-  );
-
-  console.log(`Backup gerado no servidor: ${caminhoArquivo}`);
-
-  return {
-    nomeArquivo,
-    caminhoArquivo
-  };
-}
-
-// Backup automático todos os dias às 17:00
+// ================= BACKUP AUTOMÁTICO =================
+// Backup automático todos os dias às 17:00.
+// O arquivo CSV é salvo na pasta /backups do servidor da aplicação.
 if (process.env.NODE_ENV !== 'test') {
   cron.schedule('0 17 * * *', async () => {
 
@@ -165,6 +98,13 @@ function registrarLog(req, res, next) {
 
 app.use(apenasDiasUteis);
 app.use(registrarLog);
+
+// ================= ROTAS SEPARADAS =================
+// Essas rotas foram separadas para deixar o server.js mais limpo.
+// /exportar fica em routes/exportacaoRoutes.js
+// /backup/manual fica em routes/backupRoutes.js
+app.use(exportacaoRoutes);
+app.use(backupRoutes);
 
 // ================= AUTH =================
 function autenticar(req, res, next) {
@@ -372,61 +312,6 @@ app.get('/distancia', (req, res) => {
   res.json({
     distancia_km: distancia
   });
-});
-
-// ================= EXPORTAR CSV =================
-app.get('/exportar', async (req, res) => {
-
-  try {
-
-    const csv = await gerarCsvItens();
-
-    const dataAtual = new Date()
-      .toISOString()
-      .slice(0, 10);
-
-    const nomeArquivo = `itens-${dataAtual}.csv`;
-
-    res.header(
-      'Content-Type',
-      'text/csv; charset=utf-8'
-    );
-
-    res.attachment(nomeArquivo);
-
-    return res.send('\uFEFF' + csv);
-
-  } catch (err) {
-
-    console.log(err);
-
-    return res.status(500).json({
-      erro: "Erro ao exportar dados em CSV"
-    });
-  }
-});
-
-// ================= BACKUP MANUAL =================
-app.get('/backup/manual', async (req, res) => {
-
-  try {
-
-    const backup = await fazerBackupItens();
-
-    return res.json({
-      mensagem: "Backup gerado com sucesso no servidor",
-      arquivo: backup.nomeArquivo,
-      caminho: backup.caminhoArquivo
-    });
-
-  } catch (err) {
-
-    console.log(err);
-
-    return res.status(500).json({
-      erro: "Erro ao gerar backup manual"
-    });
-  }
 });
 
 // ================= PDF =================
