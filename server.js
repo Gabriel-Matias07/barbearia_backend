@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const path = require('path');
+const http = require('http');
 const cron = require('node-cron');
 const express = require('express');
 const jwt = require('jsonwebtoken');
@@ -9,6 +11,7 @@ const cors = require('cors');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const nodemailer = require('nodemailer');
+const { Server } = require('socket.io');
 
 const conectarDB = require('./db');
 const Usuario = require('./models/Usuario');
@@ -17,11 +20,17 @@ const Item = require('./models/Item');
 const exportacaoRoutes = require('./routes/exportacaoRoutes');
 const backupRoutes = require('./routes/backupRoutes');
 const monitoramentoRoutes = require('./routes/monitoramentoRoutes');
+const videoRoutes = require('./routes/videoRoutes');
+const criarSensorRoutes = require('./routes/sensorRoutes');
 
 const { fazerBackupItens } = require('./services/backupService');
 const { registrarAcesso } = require('./services/monitoramentoService');
+const { configurarSocketSensor } = require('./services/sensorService');
 
 const app = express();
+const server = http.createServer(app);
+
+const io = new Server(server);
 
 app.use(express.json());
 
@@ -77,10 +86,11 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-// ================= HOME =================
-app.get('/', (req, res) => {
-  res.send("API esta no ar");
-});
+// ================= SOCKET DO SENSOR =================
+// Configura o Socket.IO para enviar dados do sensor ao painel.
+if (process.env.NODE_ENV !== 'test') {
+  configurarSocketSensor(io);
+}
 
 // ================= MIDDLEWARE =================
 function apenasDiasUteis(req, res, next) {
@@ -93,13 +103,29 @@ app.use(apenasDiasUteis);
 // Esses dados serão usados no relatório de monitoramento em PDF.
 app.use(registrarAcesso);
 
+// ================= HOME =================
+app.get('/', (req, res) => {
+  res.send("API esta no ar");
+});
+
+// ================= PAINEL =================
+app.get('/painel', (req, res) => {
+  res.sendFile(
+    path.join(__dirname, 'public', 'index.html')
+  );
+});
+
 // ================= ROTAS SEPARADAS =================
 // /exportar fica em routes/exportacaoRoutes.js
 // /backup/manual fica em routes/backupRoutes.js
 // /relatorio-monitoramento e /monitoramento/acessos ficam em routes/monitoramentoRoutes.js
+// /video fica em routes/videoRoutes.js
+// /sensor e /sensor/ultima-leitura ficam em routes/sensorRoutes.js
 app.use(exportacaoRoutes);
 app.use(backupRoutes);
 app.use(monitoramentoRoutes);
+app.use(videoRoutes);
+app.use(criarSensorRoutes(io));
 
 // ================= AUTH =================
 function autenticar(req, res, next) {
@@ -454,7 +480,7 @@ app.get('/itens/:id', autenticar, async (req, res) => {
 // ================= SERVER =================
 if (process.env.NODE_ENV !== 'test') {
 
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
 
     console.log(
       `Servidor rodando em http://localhost:${PORT}`
