@@ -1094,4 +1094,4 @@ Tela atualiza em tempo real
 
 ## Autor
 
-Projeto acadêmico desenvolvido por Gabriel Pereira.
+Projeto acadêmico desenvolvido por Gabriel Pereira e Rayana Gomes
